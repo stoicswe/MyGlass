@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Glass only accepts the predefined voice commands from
+  com.google.android.glass.app.VoiceTriggers.Command; unlisted names are rejected by
+  the system VoiceTriggers parser ("Unable to build voice trigger"). SHOW_ME_A_DEMO is
+  the conventional catch-all for GDK apps, so it is used here.
+
+  To change the phrase, substitute any constant from VoiceTriggers.Command, e.g.
+  SHOW_ME_MY_ACCOUNT, CHECK_THE_BATTERY, SHOW_ME_A_DEMO ...
+-->
+<trigger command="SHOW_ME_A_DEMO" />

@@ -1,0 +1,4 @@
+// Top-level build file for the MyGlass Glassware (Google Glass GDK application).
+plugins {
+    id 'com.android.application' version '7.4.1' apply false
+}

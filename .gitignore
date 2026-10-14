@@ -1,0 +1,20 @@
+# Android / Gradle
+glass-app/.gradle/
+glass-app/build/
+glass-app/app/build/
+glass-app/local.properties
+glass-app/*.iml
+glass-app/.idea/
+glass-app/captures/
+
+# Xcode
+ios-companion/build/
+ios-companion/DerivedData/
+ios-companion/*.xcworkspace/xcuserdata/
+ios-companion/*.xcodeproj/xcuserdata/
+ios-companion/*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcuserstate
+*.xcuserdatad
+
+# macOS
+.DS_Store

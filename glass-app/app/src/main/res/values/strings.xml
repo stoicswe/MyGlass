@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MyGlass</string>
+
+    <string name="activity_intro">Forwards iPhone notifications to Glass over Apple\u2019s ANCS and keeps the clock in sync. Make sure the iPhone is paired and MyGlass Companion is running.</string>
+
+    <string name="status_connecting">Connecting to iPhone\u2026</string>
+    <string name="status_connected">Connected to %1$s</string>
+    <string name="status_disconnected">Not connected. Make sure the iPhone is paired and the MyGlass Companion app is running.</string>
+    <string name="status_scanning">Searching for a paired iPhone\u2026</string>
+
+    <string name="time_synced">Time synced from iPhone</string>
+    <string name="time_unsynced">Time sync needs root, or run an NTP sync over Wi-Fi.</string>
+
+    <string name="menu_sync_time">Sync time now</string>
+    <string name="menu_reconnect">Reconnect</string>
+</resources>

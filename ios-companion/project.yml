@@ -1,0 +1,33 @@
+name: MyGlassCompanion
+options:
+  bundleIdPrefix: com.myglass
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+
+targets:
+  MyGlassCompanion:
+    type: application
+    platform: iOS
+    sources:
+      - path: MyGlassCompanion
+        excludes:
+          - "Info.plist"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.stoicswe.myglass.companion
+        PRODUCT_NAME: MyGlass Companion
+        INFOPLIST_FILE: MyGlassCompanion/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: P22P7U46RW
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
