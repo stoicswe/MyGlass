@@ -37,6 +37,11 @@
     <!-- Glass's companion permission (dangerous) guards its companion broadcasts. -->
     <uses-permission android:name="com.google.glass.bluetooth.permission.COMPANION" />
 
+    <!-- Required for an unlisted (custom) voice trigger keyword. Without this, Glass's
+         VoiceTriggers parser rejects the trigger ("Unable to build voice trigger"). -->
+    <uses-permission android:name="com.google.android.glass.permission.DEVELOPMENT"
+        tools:ignore="ProtectedPermissions" />
+
     <application
         android:allowBackup="true"
         android:label="@string/app_name"

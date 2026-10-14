@@ -2,6 +2,9 @@
 <resources>
     <string name="app_name">MyGlass</string>
 
+    <!-- Text shown in the "ok glass" voice menu and spoken to launch the app. -->
+    <string name="glass_voice_trigger">my glass</string>
+
     <string name="activity_intro">Forwards iPhone notifications to Glass over Apple\u2019s ANCS and keeps the clock in sync. Make sure the iPhone is paired and MyGlass Companion is running.</string>
 
     <string name="status_connecting">Connecting to iPhone\u2026</string>
