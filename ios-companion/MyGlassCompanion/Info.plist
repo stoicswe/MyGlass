@@ -28,6 +28,8 @@
 	<string>MyGlass Companion shares your phone's clock with Google Glass over Bluetooth.</string>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>MyGlass Companion shows the current Apple Music track on Google Glass and lets you play, pause and skip from Glass.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>MyGlass Companion saves photos and videos you shot on Google Glass into your Photos library.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>MyGlass Companion shares your location with Google Glass for compass and navigation.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

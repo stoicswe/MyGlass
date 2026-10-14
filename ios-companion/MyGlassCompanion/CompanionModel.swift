@@ -12,6 +12,9 @@ struct GlassInfo: Codable, Equatable {
     var charging: Bool
     var free: Int64
     var total: Int64
+    var ip: String?
+    var port: Int?
+    var files: Int?
     var updated: Date
 }
 
@@ -208,6 +211,9 @@ final class CompanionModel: NSObject, ObservableObject,
             charging: object["charging"] as? Bool ?? false,
             free: (object["free"] as? NSNumber)?.int64Value ?? 0,
             total: (object["total"] as? NSNumber)?.int64Value ?? 0,
+            ip: object["ip"] as? String,
+            port: (object["port"] as? NSNumber)?.intValue,
+            files: (object["files"] as? NSNumber)?.intValue,
             updated: Date())
         glassInfo = info
         glassConnected = true

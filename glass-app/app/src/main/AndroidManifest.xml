@@ -23,6 +23,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Read the camera roll so it can be served to the phone over Wi-Fi. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
     <!-- Declared so the clock sync can set the time when Glass is rooted / system-signed. -->
     <uses-permission android:name="android.permission.SET_TIME"
         tools:ignore="ProtectedPermissions" />

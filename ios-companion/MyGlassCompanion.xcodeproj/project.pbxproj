@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		19DFBF78E945B6F31980BF59 /* PhotoSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2060EAD737DA54646FECFBE7 /* PhotoSync.swift */; };
 		20C5A09FCDA904A27C1136E1 /* hero.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 83CE5B6D399CB0C3683E0A47 /* hero.jpg */; };
 		25D81EDBC4751F8DC9CDCB11 /* MediaController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2B4936EB3A11B80800A0ED /* MediaController.swift */; };
 		91FD0209FA8B72EB62E26AD8 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18854CDB79D5A1E4DE508B1 /* ContentView.swift */; };
@@ -18,6 +19,7 @@
 
 /* Begin PBXFileReference section */
 		11C65EF7CD07F5E998EBA11C /* MyGlassCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MyGlassCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2060EAD737DA54646FECFBE7 /* PhotoSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSync.swift; sourceTree = "<group>"; };
 		5E2B4936EB3A11B80800A0ED /* MediaController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaController.swift; sourceTree = "<group>"; };
 		710A306F7FD00331875881A9 /* BluetoothCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothCompanion.swift; sourceTree = "<group>"; };
 		7C19F80C65A8E2660D2066D0 /* CurrentTimeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentTimeService.swift; sourceTree = "<group>"; };
@@ -46,6 +48,7 @@
 				83CE5B6D399CB0C3683E0A47 /* hero.jpg */,
 				5E2B4936EB3A11B80800A0ED /* MediaController.swift */,
 				DE784B238597C265C62BDAE8 /* MyGlassCompanionApp.swift */,
+				2060EAD737DA54646FECFBE7 /* PhotoSync.swift */,
 			);
 			path = MyGlassCompanion;
 			sourceTree = "<group>";
@@ -135,6 +138,7 @@
 				DC28C25460B8936CC91C4827 /* CurrentTimeService.swift in Sources */,
 				25D81EDBC4751F8DC9CDCB11 /* MediaController.swift in Sources */,
 				E88A58DCDB3F8253759AE149 /* MyGlassCompanionApp.swift in Sources */,
+				19DFBF78E945B6F31980BF59 /* PhotoSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

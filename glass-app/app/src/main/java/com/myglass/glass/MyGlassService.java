@@ -28,6 +28,8 @@ import android.util.Log;
 
 import org.json.JSONObject;
 
+import java.io.File;
+
 /**
  * Foreground service that keeps the ANCS connection alive, renders iPhone
  * notifications as Glass popups and keeps the device clock in sync.
@@ -56,6 +58,7 @@ public class MyGlassService extends Service implements AncsClient.Listener {
     private AncsClient ancsClient;
     private NotificationPresenter presenter;
     private MediaCard mediaCard;
+    private PhotoServer photoServer;
     private boolean ntpSynced;
     private boolean ianaZoneSeen;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -107,6 +110,8 @@ public class MyGlassService extends Service implements AncsClient.Listener {
         presenter = new NotificationPresenter(this);
         ancsClient = new AncsClient(this, this);
         mediaCard = createMediaCardIfAvailable();
+        photoServer = new PhotoServer();
+        photoServer.start();
         IntentFilter filter = new IntentFilter();
         filter.addAction(ACTION_NOTIFICATION_ACTION);
         filter.addAction(ACTION_MEDIA_COMMAND);
@@ -153,10 +158,46 @@ public class MyGlassService extends Service implements AncsClient.Listener {
             info.put("charging", charging);
             info.put("free", free);
             info.put("total", total);
+            String ip = wifiIp();
+            if (ip != null) {
+                info.put("ip", ip);
+                info.put("port", PhotoServer.PORT);
+            }
+            if (photoServer != null) {
+                File[] files = photoServer.directory().listFiles();
+                info.put("files", files != null ? files.length : 0);
+            }
             ancsClient.sendUplink(info.toString());
         } catch (Exception e) {
             Log.w(TAG, "glass info failed: " + e.getMessage());
         }
+    }
+
+    /** The device's current Wi-Fi IPv4 address, or null if not on Wi-Fi. */
+    private String wifiIp() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces =
+                    java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                java.net.NetworkInterface ni = interfaces.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) {
+                    continue;
+                }
+                String name = ni.getName();
+                if (name == null || !name.startsWith("wlan")) {
+                    continue;
+                }
+                java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    java.net.InetAddress addr = addresses.nextElement();
+                    if (addr instanceof java.net.Inet4Address && !addr.isLoopbackAddress()) {
+                        return addr.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     private MediaCard createMediaCardIfAvailable() {
@@ -220,6 +261,9 @@ public class MyGlassService extends Service implements AncsClient.Listener {
         }
         if (mediaCard != null) {
             mediaCard.remove();
+        }
+        if (photoServer != null) {
+            photoServer.stop();
         }
         try {
             unregisterReceiver(actionReceiver);
