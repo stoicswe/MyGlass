@@ -5,6 +5,9 @@ import CoreLocation
 import UIKit
 
 /// What the paired Glass last reported about itself.
+///
+/// The known fields get a nice UI; anything else Glass sends lands in `extra` so new
+/// Glass-side features show up without needing a new iOS build.
 struct GlassInfo: Codable, Equatable {
     var name: String
     var model: String
@@ -15,6 +18,7 @@ struct GlassInfo: Codable, Equatable {
     var ip: String?
     var port: Int?
     var files: Int?
+    var extra: [String: String]?
     var updated: Date
 }
 
@@ -29,6 +33,8 @@ final class CompanionModel: NSObject, ObservableObject,
     @Published var lastUplink: String = "\u{2014}"
     @Published var lastPushed: Date?
     @Published var history: [String] = []
+    /// Any Glass messages this app doesn't specifically handle (forward compatibility).
+    @Published var glassMessages: [String] = []
     /// Last known info about the paired Glass (persisted across launches).
     @Published var glassInfo: GlassInfo?
     /// Whether a Glass is currently connected and subscribed.
@@ -199,11 +205,24 @@ final class CompanionModel: NSObject, ObservableObject,
             // Acknowledge back to Glass so the round-trip is observable in its logs.
             bluetooth.sendCommand(json(["cmd": "media_ack", "m": command]))
             media.handle(command: command)
+            return
+        }
+        // Unknown message from Glass: keep it so future Glass features are visible
+        // without needing to rebuild this app.
+        glassMessages.insert("\(Self.formatter.string(from: Date()))  \(text)", at: 0)
+        if glassMessages.count > 25 {
+            glassMessages.removeLast(glassMessages.count - 25)
         }
     }
 
     /// Records the info Glass reported about itself and remembers it across launches.
     private func updateGlassInfo(_ object: [String: Any]) {
+        let known: Set<String> = ["cmd", "name", "model", "battery", "charging",
+                                  "free", "total", "ip", "port", "files"]
+        var extra: [String: String] = [:]
+        for (key, value) in object where !known.contains(key) {
+            extra[key] = "\(value)"
+        }
         let info = GlassInfo(
             name: object["name"] as? String ?? "Google Glass",
             model: object["model"] as? String ?? "",
@@ -214,6 +233,7 @@ final class CompanionModel: NSObject, ObservableObject,
             ip: object["ip"] as? String,
             port: (object["port"] as? NSNumber)?.intValue,
             files: (object["files"] as? NSNumber)?.intValue,
+            extra: extra.isEmpty ? nil : extra,
             updated: Date())
         glassInfo = info
         glassConnected = true

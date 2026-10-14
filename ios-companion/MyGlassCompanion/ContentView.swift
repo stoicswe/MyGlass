@@ -145,6 +145,17 @@ struct PairedGlassCard: View {
                     }
                 }
 
+                if let extra = info.extra, !extra.isEmpty {
+                    Divider()
+                    ForEach(extra.keys.sorted(), id: \.self) { key in
+                        HStack {
+                            Text(key.capitalized)
+                            Spacer()
+                            Text(extra[key] ?? "").foregroundColor(.secondary)
+                        }
+                    }
+                }
+
                 Text("Updated \(info.updated, style: .relative) ago")
                     .font(.caption).foregroundColor(.secondary)
             } else {
@@ -509,6 +520,16 @@ struct DetailsView: View {
             Section("Diagnostics") {
                 ForEach(model.history.prefix(6), id: \.self) { line in
                     Text(line).font(.caption).foregroundColor(.secondary)
+                }
+            }
+
+            Section("From Glass (unhandled)") {
+                if model.glassMessages.isEmpty {
+                    Text("Nothing yet").font(.caption).foregroundColor(.secondary)
+                } else {
+                    ForEach(model.glassMessages, id: \.self) { line in
+                        Text(line).font(.caption).foregroundColor(.secondary)
+                    }
                 }
             }
         }
