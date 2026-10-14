@@ -19,6 +19,8 @@ final class BluetoothCompanion: NSObject, CBPeripheralManagerDelegate {
     var onTimePushed: ((Date) -> Void)?
     /// Called when Glass first subscribes (main queue).
     var onCentralSubscribed: (() -> Void)?
+    /// Called when Glass unsubscribes (main queue).
+    var onCentralUnsubscribed: (() -> Void)?
     /// Called when Glass writes a JSON command to the uplink characteristic (main queue).
     var onUplinkCommand: ((String) -> Void)?
 
@@ -238,6 +240,7 @@ final class BluetoothCompanion: NSObject, CBPeripheralManagerDelegate {
                            central: CBCentral,
                            didUnsubscribeFrom characteristic: CBCharacteristic) {
         report("Glass disconnected")
+        DispatchQueue.main.async { self.onCentralUnsubscribed?() }
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager,

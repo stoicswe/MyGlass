@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		20C5A09FCDA904A27C1136E1 /* hero.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 83CE5B6D399CB0C3683E0A47 /* hero.jpg */; };
 		25D81EDBC4751F8DC9CDCB11 /* MediaController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2B4936EB3A11B80800A0ED /* MediaController.swift */; };
 		91FD0209FA8B72EB62E26AD8 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18854CDB79D5A1E4DE508B1 /* ContentView.swift */; };
 		A928198AFD6B9E90F6F6566B /* BluetoothCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710A306F7FD00331875881A9 /* BluetoothCompanion.swift */; };
@@ -20,6 +21,7 @@
 		5E2B4936EB3A11B80800A0ED /* MediaController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaController.swift; sourceTree = "<group>"; };
 		710A306F7FD00331875881A9 /* BluetoothCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothCompanion.swift; sourceTree = "<group>"; };
 		7C19F80C65A8E2660D2066D0 /* CurrentTimeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentTimeService.swift; sourceTree = "<group>"; };
+		83CE5B6D399CB0C3683E0A47 /* hero.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = hero.jpg; sourceTree = "<group>"; };
 		DE784B238597C265C62BDAE8 /* MyGlassCompanionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGlassCompanionApp.swift; sourceTree = "<group>"; };
 		E17CFAEB84267C0DDEDDBA36 /* CompanionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionModel.swift; sourceTree = "<group>"; };
 		F18854CDB79D5A1E4DE508B1 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -41,6 +43,7 @@
 				E17CFAEB84267C0DDEDDBA36 /* CompanionModel.swift */,
 				F18854CDB79D5A1E4DE508B1 /* ContentView.swift */,
 				7C19F80C65A8E2660D2066D0 /* CurrentTimeService.swift */,
+				83CE5B6D399CB0C3683E0A47 /* hero.jpg */,
 				5E2B4936EB3A11B80800A0ED /* MediaController.swift */,
 				DE784B238597C265C62BDAE8 /* MyGlassCompanionApp.swift */,
 			);
@@ -63,6 +66,7 @@
 			buildConfigurationList = D9B755D437B4AA139FABACD6 /* Build configuration list for PBXNativeTarget "MyGlassCompanion" */;
 			buildPhases = (
 				7906AAC309DDC7B4E8634CC8 /* Sources */,
+				B732EC9B87DD49FB9D83EB6B /* Resources */,
 			);
 			buildRules = (
 			);
@@ -108,6 +112,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B732EC9B87DD49FB9D83EB6B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				20C5A09FCDA904A27C1136E1 /* hero.jpg in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		7906AAC309DDC7B4E8634CC8 /* Sources */ = {

@@ -4,6 +4,17 @@ import UserNotifications
 import CoreLocation
 import UIKit
 
+/// What the paired Glass last reported about itself.
+struct GlassInfo: Codable, Equatable {
+    var name: String
+    var model: String
+    var battery: Int
+    var charging: Bool
+    var free: Int64
+    var total: Int64
+    var updated: Date
+}
+
 /// View-model that owns the Bluetooth companion and surfaces UI state.
 final class CompanionModel: NSObject, ObservableObject,
                             UNUserNotificationCenterDelegate, CLLocationManagerDelegate {
@@ -15,8 +26,13 @@ final class CompanionModel: NSObject, ObservableObject,
     @Published var lastUplink: String = "\u{2014}"
     @Published var lastPushed: Date?
     @Published var history: [String] = []
+    /// Last known info about the paired Glass (persisted across launches).
+    @Published var glassInfo: GlassInfo?
+    /// Whether a Glass is currently connected and subscribed.
+    @Published var glassConnected: Bool = false
 
     private static let mediaKey = "mediaSharingEnabled"
+    private static let glassInfoKey = "pairedGlassInfo"
     private let bluetooth = BluetoothCompanion()
     private let locationManager = CLLocationManager()
     private let media = MediaController()
@@ -44,7 +60,11 @@ final class CompanionModel: NSObject, ObservableObject,
             self?.lastPushed = date
         }
         bluetooth.onCentralSubscribed = { [weak self] in
+            self?.glassConnected = true
             self?.sendPhoneInfo()
+        }
+        bluetooth.onCentralUnsubscribed = { [weak self] in
+            self?.glassConnected = false
         }
         bluetooth.onUplinkCommand = { [weak self] text in
             self?.handleUplink(text)
@@ -59,6 +79,11 @@ final class CompanionModel: NSObject, ObservableObject,
 
         if UserDefaults.standard.object(forKey: Self.mediaKey) as? Bool ?? true {
             setMediaSharing(true)
+        }
+
+        if let data = UserDefaults.standard.data(forKey: Self.glassInfoKey),
+           let info = try? JSONDecoder().decode(GlassInfo.self, from: data) {
+            glassInfo = info
         }
 
         // Periodic heartbeat so Glass can detect a stale link (e.g. after this app
@@ -163,10 +188,31 @@ final class CompanionModel: NSObject, ObservableObject,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
         }
+        if (object["cmd"] as? String) == "glass_info" {
+            updateGlassInfo(object)
+            return
+        }
         if let command = object["m"] as? String {
             // Acknowledge back to Glass so the round-trip is observable in its logs.
             bluetooth.sendCommand(json(["cmd": "media_ack", "m": command]))
             media.handle(command: command)
+        }
+    }
+
+    /// Records the info Glass reported about itself and remembers it across launches.
+    private func updateGlassInfo(_ object: [String: Any]) {
+        let info = GlassInfo(
+            name: object["name"] as? String ?? "Google Glass",
+            model: object["model"] as? String ?? "",
+            battery: object["battery"] as? Int ?? -1,
+            charging: object["charging"] as? Bool ?? false,
+            free: (object["free"] as? NSNumber)?.int64Value ?? 0,
+            total: (object["total"] as? NSNumber)?.int64Value ?? 0,
+            updated: Date())
+        glassInfo = info
+        glassConnected = true
+        if let data = try? JSONEncoder().encode(info) {
+            UserDefaults.standard.set(data, forKey: Self.glassInfoKey)
         }
     }
 

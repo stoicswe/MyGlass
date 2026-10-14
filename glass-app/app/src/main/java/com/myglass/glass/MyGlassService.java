@@ -17,8 +17,13 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.BatteryManager;
 import android.os.Build;
+import android.os.Environment;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.os.StatFs;
 import android.util.Log;
 
 import org.json.JSONObject;
@@ -53,6 +58,25 @@ public class MyGlassService extends Service implements AncsClient.Listener {
     private MediaCard mediaCard;
     private boolean ntpSynced;
     private boolean ianaZoneSeen;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+
+    /** Periodically reports Glass battery/storage to the phone. */
+    private final Runnable glassInfoRunnable = new Runnable() {
+        @Override
+        public void run() {
+            sendGlassInfo();
+            handler.postDelayed(this, 60000L);
+        }
+    };
+
+    private final BroadcastReceiver batteryReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (Intent.ACTION_BATTERY_CHANGED.equals(intent.getAction())) {
+                sendGlassInfo();
+            }
+        }
+    };
 
     /** Receives notification-action taps and media commands from the Glass UI. */
     private final BroadcastReceiver actionReceiver = new BroadcastReceiver() {
@@ -87,6 +111,52 @@ public class MyGlassService extends Service implements AncsClient.Listener {
         filter.addAction(ACTION_NOTIFICATION_ACTION);
         filter.addAction(ACTION_MEDIA_COMMAND);
         registerReceiver(actionReceiver, filter);
+        registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        handler.postDelayed(glassInfoRunnable, 5000L);
+    }
+
+    /** Sends this Glass's name, battery and storage to the phone over the uplink. */
+    private void sendGlassInfo() {
+        if (ancsClient == null) {
+            return;
+        }
+        try {
+            int level = -1;
+            boolean charging = false;
+            Intent battery = registerReceiver(null,
+                    new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (battery != null) {
+                int raw = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+                if (raw >= 0 && scale > 0) {
+                    level = raw * 100 / scale;
+                }
+                int status = battery.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                charging = status == BatteryManager.BATTERY_STATUS_CHARGING
+                        || status == BatteryManager.BATTERY_STATUS_FULL;
+            }
+
+            long total = 0L;
+            long free = 0L;
+            try {
+                StatFs stat = new StatFs(Environment.getDataDirectory().getPath());
+                total = stat.getBlockCount() * (long) stat.getBlockSize();
+                free = stat.getAvailableBlocks() * (long) stat.getBlockSize();
+            } catch (Exception ignored) {
+            }
+
+            JSONObject info = new JSONObject();
+            info.put("cmd", "glass_info");
+            info.put("name", Build.MODEL);
+            info.put("model", Build.MODEL);
+            info.put("battery", level);
+            info.put("charging", charging);
+            info.put("free", free);
+            info.put("total", total);
+            ancsClient.sendUplink(info.toString());
+        } catch (Exception e) {
+            Log.w(TAG, "glass info failed: " + e.getMessage());
+        }
     }
 
     private MediaCard createMediaCardIfAvailable() {
@@ -155,6 +225,11 @@ public class MyGlassService extends Service implements AncsClient.Listener {
             unregisterReceiver(actionReceiver);
         } catch (Exception ignored) {
         }
+        try {
+            unregisterReceiver(batteryReceiver);
+        } catch (Exception ignored) {
+        }
+        handler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 
@@ -173,6 +248,7 @@ public class MyGlassService extends Service implements AncsClient.Listener {
         String name = deviceName != null && deviceName.length() > 0
                 ? deviceName : getString(R.string.app_name);
         updateNotification(getString(R.string.status_connected, name));
+        sendGlassInfo();
     }
 
     @Override
