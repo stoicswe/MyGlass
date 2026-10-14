@@ -19,11 +19,11 @@ import android.view.View;
 import android.widget.TextView;
 
 /**
- * Voice-triggered entry point ("ok glass, my glass").
+ * Voice-triggered entry point ("ok glass, show me a demo").
  *
  * <p>It explains what the Glassware does and launches {@link MyGlassService}. Tapping
- * the screen dismisses it. Uses plain Android views because this Glass build does not
- * include the GDK.
+ * the screen dismisses it. Uses plain Android views because the GDK card classes are
+ * only used for the timeline, not this launcher card.
  */
 public class MainActivity extends Activity {
 
@@ -50,16 +50,36 @@ public class MainActivity extends Activity {
         startService(new Intent(this, MyGlassService.class)
                 .setAction(MyGlassService.ACTION_START));
 
-        // Debug helper: `adb shell am start .../.MainActivity --ez test_notification true`
-        if (getIntent() != null && getIntent().getBooleanExtra("test_notification", false)) {
+        handleIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIntent(intent);
+    }
+
+    /**
+     * Debug helpers:
+     * <ul>
+     *   <li>{@code adb shell am start -n com.myglass.glass/.MainActivity --ez test_notification true}
+     *       posts a sample timeline card;</li>
+     *   <li>{@code ... --ef lat 37.77 --ef lon -122.41} feeds a mock location.</li>
+     * </ul>
+     */
+    private void handleIntent(Intent intent) {
+        if (intent == null) {
+            return;
+        }
+        if (intent.getBooleanExtra("test_notification", false)) {
             startService(new Intent(this, MyGlassService.class)
                     .setAction(MyGlassService.ACTION_TEST_NOTIFICATION));
         }
-        // Debug helper: `... --ef lat 37.77 --ef lon -122.41` to feed a mock location.
-        if (getIntent() != null && getIntent().hasExtra("lat")) {
+        if (intent.hasExtra("lat")) {
             GlassLocation.update(this,
-                    getIntent().getDoubleExtra("lat", 0),
-                    getIntent().getDoubleExtra("lon", 0), 10f, 0L);
+                    intent.getDoubleExtra("lat", 0),
+                    intent.getDoubleExtra("lon", 0), 10f, 0L);
         }
     }
 }

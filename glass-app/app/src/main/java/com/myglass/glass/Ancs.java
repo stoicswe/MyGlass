@@ -9,6 +9,10 @@
  */
 package com.myglass.glass;
 
+import java.util.Calendar;
+import java.util.Locale;
+import java.util.TimeZone;
+
 /**
  * Constants and byte-level helpers for the Apple Notification Center Service.
  */
@@ -44,6 +48,30 @@ public final class Ancs {
     /** Maximum attribute length requested from iOS. */
     public static final int MAX_ATTRIBUTE_LENGTH = 0xFF;
 
+    /**
+     * Parses the ANCS {@code Date} attribute, an ISO-8601-ish UTC string such as
+     * {@code 20140317T120000Z}. Returns 0 if it cannot be parsed.
+     */
+    public static long parseDate(String value) {
+        if (value == null || value.length() < 15) {
+            return 0;
+        }
+        try {
+            int year = Integer.parseInt(value.substring(0, 4));
+            int month = Integer.parseInt(value.substring(4, 6));
+            int day = Integer.parseInt(value.substring(6, 8));
+            int hour = Integer.parseInt(value.substring(9, 11));
+            int minute = Integer.parseInt(value.substring(11, 13));
+            int second = Integer.parseInt(value.substring(13, 15));
+            Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"), Locale.US);
+            calendar.clear();
+            calendar.set(year, month - 1, day, hour, minute, second);
+            return calendar.getTimeInMillis();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     /** Reads the 4-byte, little-endian NotificationUID. */
     public static long readUid(byte[] data, int offset) {
         return (data[offset] & 0xFFL)
@@ -57,6 +85,18 @@ public final class Ancs {
         out[offset + 1] = (byte) ((uid >> 8) & 0xFF);
         out[offset + 2] = (byte) ((uid >> 16) & 0xFF);
         out[offset + 3] = (byte) ((uid >> 24) & 0xFF);
+    }
+
+    /**
+     * Builds a {@code PerformNotificationAction} control-point command. {@code actionId}
+     * is {@link #ACTION_POSITIVE} or {@link #ACTION_NEGATIVE}.
+     */
+    public static byte[] performNotificationAction(long uid, int actionId) {
+        byte[] out = new byte[6];
+        out[0] = (byte) CMD_PERFORM_NOTIFICATION_ACTION;
+        writeUid(out, 1, uid);
+        out[5] = (byte) actionId;
+        return out;
     }
 
     /**

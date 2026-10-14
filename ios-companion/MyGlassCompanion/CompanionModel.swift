@@ -11,11 +11,16 @@ final class CompanionModel: NSObject, ObservableObject,
     @Published var status: String = "Bluetooth idle"
     @Published var isAdvertising: Bool = false
     @Published var isSharingLocation: Bool = false
+    @Published var isSharingMedia: Bool = false
+    @Published var lastUplink: String = "\u{2014}"
     @Published var lastPushed: Date?
     @Published var history: [String] = []
 
+    private static let mediaKey = "mediaSharingEnabled"
     private let bluetooth = BluetoothCompanion()
     private let locationManager = CLLocationManager()
+    private let media = MediaController()
+    private var mediaEnabled = false
 
     override init() {
         super.init()
@@ -41,9 +46,27 @@ final class CompanionModel: NSObject, ObservableObject,
         bluetooth.onCentralSubscribed = { [weak self] in
             self?.sendPhoneInfo()
         }
+        bluetooth.onUplinkCommand = { [weak self] text in
+            self?.handleUplink(text)
+        }
+        media.onStateChanged = { [weak self] state in
+            guard let self = self, self.mediaEnabled else { return }
+            self.pushMedia(state)
+        }
         // Begin advertising immediately at launch; if Bluetooth is not powered on yet,
         // BluetoothCompanion will start as soon as it becomes available.
         bluetooth.start()
+
+        if UserDefaults.standard.object(forKey: Self.mediaKey) as? Bool ?? true {
+            setMediaSharing(true)
+        }
+
+        // Periodic heartbeat so Glass can detect a stale link (e.g. after this app
+        // restarts) even though Android serves cached values for GATT reads.
+        Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.bluetooth.sendCommand(self.json(["cmd": "ping"]))
+        }
 
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
@@ -107,6 +130,46 @@ final class CompanionModel: NSObject, ObservableObject,
             "charging": charging,
         ]))
     }
+    // MARK: - Media (Apple Music via MusicKit)
+
+    func setMediaSharing(_ enabled: Bool) {
+        mediaEnabled = enabled
+        isSharingMedia = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.mediaKey)
+        if enabled {
+            media.start()
+        } else {
+            bluetooth.sendCommand(json(["cmd": "media_stop"]))
+        }
+    }
+
+    private func pushMedia(_ state: MediaController.State) {
+        if state.title.isEmpty && !state.isPlaying {
+            bluetooth.sendCommand(json(["cmd": "media_stop"]))
+            return
+        }
+        bluetooth.sendCommand(json([
+            "cmd": "media_state",
+            "title": state.title,
+            "artist": state.artist,
+            "playing": state.isPlaying,
+        ]))
+    }
+
+    private func handleUplink(_ text: String) {
+        lastUplink = text
+        NSLog("MyGlassCompanion: handleUplink %@", text)
+        guard let data = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        if let command = object["m"] as? String {
+            // Acknowledge back to Glass so the round-trip is observable in its logs.
+            bluetooth.sendCommand(json(["cmd": "media_ack", "m": command]))
+            media.handle(command: command)
+        }
+    }
+
     func setLocationSharing(_ enabled: Bool) {
         isSharingLocation = enabled
         if enabled {

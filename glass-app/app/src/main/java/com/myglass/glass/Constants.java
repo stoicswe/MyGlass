@@ -65,6 +65,9 @@ public final class Constants {
     /** Phone -> Glass command channel (JSON), delivered via notifications. */
     public static final UUID MYGLASS_COMMAND =
             UUID.fromString("0000a104-0000-1000-8000-00805f9b34fb");
+    /** Glass -> phone command channel (JSON), written to by Glass. */
+    public static final UUID MYGLASS_UPLINK =
+            UUID.fromString("0000a105-0000-1000-8000-00805f9b34fb");
 
     /** How long a notification popup stays on screen before it is dismissed. */
     public static final int NOTIFICATION_POPUP_TIMEOUT_MS = 8000;

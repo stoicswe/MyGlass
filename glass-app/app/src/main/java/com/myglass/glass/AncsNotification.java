@@ -30,6 +30,10 @@ public class AncsNotification {
     public String title;
     public String subtitle;
     public String message;
+    public String dateString;
+    public long dateMillis;
+    public String positiveActionLabel;
+    public String negativeActionLabel;
 
     public boolean isSilent() {
         return (eventFlags & FLAG_SILENT) != 0;
@@ -45,6 +49,26 @@ public class AncsNotification {
 
     public boolean isRemoved() {
         return eventId == Ancs.EVENT_REMOVED;
+    }
+
+    /** Whether iOS advertises a positive (e.g. "Reply") action for this notification. */
+    public boolean hasPositiveAction() {
+        return (eventFlags & FLAG_POSITIVE_ACTION) != 0;
+    }
+
+    /** Whether iOS advertises a negative (e.g. "Dismiss") action for this notification. */
+    public boolean hasNegativeAction() {
+        return (eventFlags & FLAG_NEGATIVE_ACTION) != 0;
+    }
+
+    public String positiveActionText() {
+        return positiveActionLabel != null && positiveActionLabel.length() > 0
+                ? positiveActionLabel : "Reply";
+    }
+
+    public String negativeActionText() {
+        return negativeActionLabel != null && negativeActionLabel.length() > 0
+                ? negativeActionLabel : "Dismiss";
     }
 
     /** Best-effort friendly application name from the reverse-DNS app identifier. */
@@ -91,5 +115,39 @@ public class AncsNotification {
             sb.append(message);
         }
         return sb.toString();
+    }
+
+    /** Full notification text for the scrollable detail card. */
+    public String detailText() {
+        StringBuilder sb = new StringBuilder();
+        if (title != null && title.length() > 0) {
+            sb.append(title);
+        }
+        if (subtitle != null && subtitle.length() > 0) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(subtitle);
+        }
+        if (message != null && message.length() > 0) {
+            if (sb.length() > 0) {
+                sb.append("\n\n");
+            }
+            sb.append(message);
+        }
+        if (sb.length() == 0) {
+            sb.append(appName());
+        }
+        return sb.toString();
+    }
+
+    /** Footnote-ish line: app name plus the ANCS category. */
+    public String metaText() {
+        String app = appName();
+        String category = Ancs.categoryName(categoryId);
+        if (category != null && category.length() > 0 && !category.equalsIgnoreCase(app)) {
+            return app + " \u00b7 " + category;
+        }
+        return app;
     }
 }

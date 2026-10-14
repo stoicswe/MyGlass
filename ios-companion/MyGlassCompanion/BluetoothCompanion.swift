@@ -19,6 +19,8 @@ final class BluetoothCompanion: NSObject, CBPeripheralManagerDelegate {
     var onTimePushed: ((Date) -> Void)?
     /// Called when Glass first subscribes (main queue).
     var onCentralSubscribed: (() -> Void)?
+    /// Called when Glass writes a JSON command to the uplink characteristic (main queue).
+    var onUplinkCommand: ((String) -> Void)?
 
     private var peripheralManager: CBPeripheralManager!
     private var wantsAdvertising = false
@@ -27,6 +29,8 @@ final class BluetoothCompanion: NSObject, CBPeripheralManagerDelegate {
     private var epochCharacteristic: CBMutableCharacteristic?
     private var deviceNameCharacteristic: CBMutableCharacteristic?
     private var commandCharacteristic: CBMutableCharacteristic?
+    private var uplinkCharacteristic: CBMutableCharacteristic?
+    private var uplinkBuffer = Data()
 
     override init() {
         super.init()
@@ -77,14 +81,59 @@ final class BluetoothCompanion: NSObject, CBPeripheralManagerDelegate {
     // MARK: - Command channel (phone -> Glass)
 
     /// Sends a JSON command to Glass over the notify command characteristic.
+    ///
+    /// A BLE notification carries at most 20 payload bytes (ATT MTU 23 on Glass's
+    /// Android 4.4 stack), so the command is framed with a trailing newline and split
+    /// into 20-byte chunks that Glass reassembles.
     func sendCommand(_ json: String) {
-        guard let characteristic = commandCharacteristic else {
+        guard commandCharacteristic != nil else {
             NSLog("MyGlassCompanion: sendCommand skipped (not ready)")
             return
         }
-        let sent = peripheralManager.updateValue(
-            Data(json.utf8), for: characteristic, onSubscribedCentrals: nil)
-        NSLog("MyGlassCompanion: sendCommand sent=%d %@", sent ? 1 : 0, json)
+        let framed = Array((json + "\n").utf8)
+        var index = 0
+        while index < framed.count {
+            let end = min(index + 20, framed.count)
+            commandQueue.append(Data(framed[index..<end]))
+            index = end
+        }
+        NSLog("MyGlassCompanion: sendCommand queued %d chunk(s): %@",
+              commandQueue.count, json)
+        drainCommandQueue()
+    }
+
+    private var commandQueue: [Data] = []
+    private var draining = false
+
+    private func drainCommandQueue() {
+        guard !draining, let characteristic = commandCharacteristic else { return }
+        draining = true
+        sendNextChunk(characteristic)
+    }
+
+    private func sendNextChunk(_ characteristic: CBMutableCharacteristic) {
+        guard !commandQueue.isEmpty else {
+            draining = false
+            return
+        }
+        let chunk = commandQueue[0]
+        if peripheralManager.updateValue(chunk, for: characteristic,
+                                         onSubscribedCentrals: nil) {
+            commandQueue.removeFirst()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                self.sendNextChunk(characteristic)
+            }
+        }
+        // If updateValue returned false the transmit queue is full; we resume from
+        // peripheralManagerIsReady(toUpdateSubscribers:).
+    }
+
+    func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
+        if draining, let characteristic = commandCharacteristic {
+            sendNextChunk(characteristic)
+        } else {
+            drainCommandQueue()
+        }
     }
 
     // MARK: - Service setup
@@ -127,13 +176,19 @@ final class BluetoothCompanion: NSObject, CBPeripheralManagerDelegate {
             properties: [.read, .notify],
             value: nil,
             permissions: [.readable])
+        let uplink = CBMutableCharacteristic(
+            type: MyGlassUUIDs.uplink,
+            properties: [.write, .writeWithoutResponse],
+            value: nil,
+            permissions: [.writeable])
         let myGlassService = CBMutableService(type: MyGlassUUIDs.myGlassService, primary: true)
-        myGlassService.characteristics = [epoch, deviceName, timeZone, command]
+        myGlassService.characteristics = [epoch, deviceName, timeZone, command, uplink]
 
         currentTimeCharacteristic = currentTime
         epochCharacteristic = epoch
         deviceNameCharacteristic = deviceName
         commandCharacteristic = command
+        uplinkCharacteristic = uplink
 
         peripheralManager.add(currentTimeService)
         peripheralManager.add(myGlassService)
@@ -183,6 +238,31 @@ final class BluetoothCompanion: NSObject, CBPeripheralManagerDelegate {
                            central: CBCentral,
                            didUnsubscribeFrom characteristic: CBCharacteristic) {
         report("Glass disconnected")
+    }
+
+    func peripheralManager(_ peripheral: CBPeripheralManager,
+                           didReceiveWrite requests: [CBATTRequest]) {
+        for request in requests {
+            if request.characteristic.uuid == MyGlassUUIDs.uplink, let data = request.value {
+                appendUplink(data)
+            }
+            if request.characteristic.properties.contains(.write) {
+                peripheral.respond(to: request, withResult: .success)
+            }
+        }
+    }
+
+    /// Reassembles newline-framed uplink writes (Glass chunks them to fit a 20-byte write).
+    private func appendUplink(_ data: Data) {
+        uplinkBuffer.append(data)
+        while let newline = uplinkBuffer.firstIndex(of: 0x0A) {
+            let frame = uplinkBuffer.subdata(in: uplinkBuffer.startIndex ..< newline)
+            uplinkBuffer.removeSubrange(uplinkBuffer.startIndex ... newline)
+            if let text = String(data: frame, encoding: .utf8), !text.isEmpty {
+                NSLog("MyGlassCompanion: uplink %@", text)
+                DispatchQueue.main.async { self.onUplinkCommand?(text) }
+            }
+        }
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveRead request: CBATTRequest) {

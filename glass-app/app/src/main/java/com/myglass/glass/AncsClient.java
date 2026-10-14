@@ -17,7 +17,10 @@ import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -69,11 +72,20 @@ public class AncsClient {
         void onCompanionCommand(String payload);
     }
 
-    private static final int[] REQUESTED_ATTRIBUTES = {
+    /*
+     * ANCS attributes are fetched in two phases because the control-point command must
+     * fit a single 20-byte BLE write (Android 4.4's ATT MTU cap).
+     */
+    private static final int[] MAIN_ATTRIBUTES = {
             Ancs.ATTR_APP_IDENTIFIER,
             Ancs.ATTR_TITLE,
             Ancs.ATTR_SUBTITLE,
             Ancs.ATTR_MESSAGE,
+            Ancs.ATTR_DATE,
+    };
+    private static final int[] ACTION_ATTRIBUTES = {
+            Ancs.ATTR_POSITIVE_ACTION_LABEL,
+            Ancs.ATTR_NEGATIVE_ACTION_LABEL,
     };
 
     /* Bluetooth SIG "Current Time Service" 16-bit UUID. */
@@ -91,6 +103,9 @@ public class AncsClient {
     private BluetoothGatt gatt;
     private BluetoothGattCharacteristic controlPoint;
     private BluetoothGattCharacteristic dataSource;
+    private BluetoothGattCharacteristic notificationSource;
+    private BluetoothGattCharacteristic commandChar;
+    private BluetoothGattCharacteristic uplink;
 
     /* Sequential GATT operation queue: Android allows only one operation at a time. */
     private final Queue<GattOp> opQueue = new ArrayDeque<GattOp>();
@@ -109,9 +124,211 @@ public class AncsClient {
     private boolean ready;
     private final Set<Long> subscribed = new HashSet<Long>();
     private final Set<String> bondRequested = new HashSet<String>();
+    private boolean receiverRegistered;
+    private long lastProgressMs;
+    private long lastDownlinkMs;
+    private int stuckCount;
+    private boolean keepalivePending;
+
+    /**
+     * iOS only delivers ANCS once the link is bonded/encrypted, and the bond often
+     * completes a moment after the first (rejected) subscription attempt. Retry once the
+     * link is authorized instead of waiting for a disconnect.
+     */
+    private final Runnable resubscribeRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (started && !ready) {
+                Log.i(TAG, "Retrying ANCS subscription after authorization");
+                retrySubscription();
+            }
+        }
+    };
+
+    /**
+     * Used when a GATT operation fails at the link level (status 132): the link is no
+     * longer usable, so tear it down and rediscover instead of retrying in place.
+     */
+    private final Runnable reconnectNowRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (started && !ready) {
+                Log.i(TAG, "Link error; reconnecting from scratch");
+                reconnect();
+            }
+        }
+    };
+
+    /**
+     * Watchdog that keeps Glass trying to reach the phone: if the link makes no progress
+     * for a while (a dropped connection, a stale bond, or a wedged scan), it tears the
+     * GATT down and rediscovers. This avoids needing to restart the app by hand.
+     */
+    private final Runnable watchdogRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (started) {
+                long now = System.currentTimeMillis();
+                if (ready && now - lastDownlinkMs > 60000L) {
+                    // The phone stopped sending its heartbeat: the link to the phone app
+                    // is stale (e.g. the app restarted), even though it looks connected.
+                    Log.i(TAG, "Watchdog: heartbeat lost, treating link as stale");
+                    lastDownlinkMs = now;
+                    ready = false;
+                    closeGatt();
+                    reconnect();
+                } else if (!ready && now - lastProgressMs > 30000L) {
+                    stuckCount++;
+                    Log.i(TAG, "Watchdog: no progress for " + ((now - lastProgressMs) / 1000)
+                            + "s (attempt " + stuckCount + ")");
+                    lastProgressMs = now;
+                    if (stuckCount >= 4) {
+                        stuckCount = 0;
+                        cycleBluetooth();
+                    } else {
+                        reconnect();
+                    }
+                } else if (ready) {
+                    stuckCount = 0;
+                }
+                handler.postDelayed(watchdogRunnable, 10000L);
+            }
+        }
+    };
+
+    /** Last resort: toggle Bluetooth to clear a wedged controller/stack. */
+    @SuppressWarnings("deprecation")
+    private void cycleBluetooth() {
+        try {
+            final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            if (adapter == null) {
+                return;
+            }
+            Log.i(TAG, "Watchdog: cycling Bluetooth to clear a wedged stack");
+            if (adapter.isEnabled()) {
+                adapter.disable();
+            }
+            handler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (started && adapter != null && !adapter.isEnabled()) {
+                        adapter.enable();
+                    }
+                    markProgress();
+                }
+            }, 3000L);
+        } catch (Exception e) {
+            Log.w(TAG, "cycleBluetooth failed: " + e.getMessage());
+        }
+    }
+
+    private void markProgress() {
+        lastProgressMs = System.currentTimeMillis();
+    }
+
+    /**
+     * Keepalive: a stale GATT link (e.g. after the phone app restarts) can look
+     * "connected" forever. Periodically read the clock characteristic; if it does not
+     * answer in time, the link is dead, so tear it down and rediscover.
+     */
+    private final Runnable keepaliveTimeout = new Runnable() {
+        @Override
+        public void run() {
+            if (keepalivePending) {
+                Log.w(TAG, "Keepalive timed out; link is dead");
+                keepalivePending = false;
+                ready = false;
+                closeGatt();
+                if (started) {
+                    reconnect();
+                }
+            }
+        }
+    };
+
+    private final Runnable keepaliveRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (started && ready && gatt != null && !keepalivePending) {
+                BluetoothGattCharacteristic epoch = findCharacteristic(gatt,
+                        Constants.MYGLASS_SERVICE, Constants.MYGLASS_EPOCH_MILLIS);
+                if (epoch != null) {
+                    keepalivePending = true;
+                    enqueue(new GattOp(GattOp.READ, epoch, null, null));
+                    handler.removeCallbacks(keepaliveTimeout);
+                    handler.postDelayed(keepaliveTimeout, 10000L);
+                }
+            }
+            if (started) {
+                handler.postDelayed(keepaliveRunnable, 25000L);
+            }
+        }
+    };
+
+    private final BroadcastReceiver bondReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent intent) {
+            if (intent == null
+                    || !BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(intent.getAction())) {
+                return;
+            }
+            BluetoothDevice device =
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+            int state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE,
+                    BluetoothDevice.ERROR);
+            if (device == null || state != BluetoothDevice.BOND_BONDED) {
+                return;
+            }
+            Log.i(TAG, "Bond completed with " + safeName(device) + "; re-subscribing to ANCS");
+            scheduleResubscribe();
+        }
+    };
+
+    private void scheduleResubscribe() {
+        if (ready) {
+            // Already subscribed; a late bond event for the iPhone's rotating address is
+            // not a reason to tear the link down.
+            return;
+        }
+        handler.removeCallbacks(resubscribeRunnable);
+        handler.postDelayed(resubscribeRunnable, 2500L);
+    }
+
+    private void scheduleReconnectNow() {
+        if (ready) {
+            return;
+        }
+        handler.removeCallbacks(reconnectNowRunnable);
+        handler.postDelayed(reconnectNowRunnable, 1500L);
+    }
+
+    private void registerBondReceiver() {
+        if (receiverRegistered) {
+            return;
+        }
+        context.registerReceiver(bondReceiver,
+                new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED));
+        receiverRegistered = true;
+    }
+
+    private void unregisterBondReceiver() {
+        if (!receiverRegistered) {
+            return;
+        }
+        try {
+            context.unregisterReceiver(bondReceiver);
+        } catch (Exception ignored) {
+        }
+        receiverRegistered = false;
+    }
 
     /* Data-source reassembly for the notification currently being fetched. */
     private final ByteArrayOutputStream dataBuffer = new ByteArrayOutputStream();
+    private int[] currentPhaseAttributes;
+    private int currentPhase;
+
+    /* Reassembly buffer for the framed (chunked) MyGlass phone -> Glass command channel. */
+    private final ByteArrayOutputStream commandBuffer = new ByteArrayOutputStream();
     private final Set<Integer> receivedAttributes = new HashSet<Integer>();
     private final Map<Long, AncsNotification> notifications = new LinkedHashMap<Long, AncsNotification>();
     private final Queue<Long> requestQueue = new ArrayDeque<Long>();
@@ -132,7 +349,7 @@ public class AncsClient {
     private final Runnable dispatchData = new Runnable() {
         @Override
         public void run() {
-            dispatchActiveRequest();
+            advancePhase();
         }
     };
 
@@ -221,7 +438,14 @@ public class AncsClient {
     /** Starts discovery/connection. Safe to call repeatedly. */
     public void start() {
         started = true;
+        registerBondReceiver();
+        markProgress();
+        lastDownlinkMs = System.currentTimeMillis();
         handler.removeCallbacks(reconnect);
+        handler.removeCallbacks(watchdogRunnable);
+        handler.postDelayed(watchdogRunnable, 15000L);
+        handler.removeCallbacks(keepaliveRunnable);
+        handler.postDelayed(keepaliveRunnable, 25000L);
         if (gatt != null) {
             return;
         }
@@ -250,6 +474,10 @@ public class AncsClient {
 
     public void stop() {
         started = false;
+        unregisterBondReceiver();
+        handler.removeCallbacks(watchdogRunnable);
+        handler.removeCallbacks(keepaliveRunnable);
+        handler.removeCallbacks(keepaliveTimeout);
         handler.removeCallbacksAndMessages(null);
         stopScan();
         closeGatt();
@@ -257,6 +485,7 @@ public class AncsClient {
         subscribed.clear();
         notifications.clear();
         requestQueue.clear();
+        bondRequested.clear();
     }
 
     /** Forgets the current peer and re-runs discovery. */
@@ -282,7 +511,10 @@ public class AncsClient {
         }
         scanning = true;
         listener.onAncsDisconnected();
-        Log.i(TAG, "Scanning for the iPhone / MyGlass Companion...");
+        Log.i(TAG, "Scanning for the MyGlass Companion...");
+        // Note: Android 4.4's startLeScan(UUID[]) filter does not match this device's
+        // 16-bit advertised service UUIDs, so we scan unfiltered. The scan is duty-cycled
+        // and we only connect to the companion, which keeps the Bluetooth stack healthy.
         boolean ok = adapter.startLeScan(leScanCallback);
         if (!ok) {
             Log.w(TAG, "startLeScan failed");
@@ -351,31 +583,10 @@ public class AncsClient {
             return;
         }
         stopScan();
-        if (candidates.isEmpty() && !appleAdvertisers.isEmpty()) {
-            // No companion advertisement was visible, but the iPhone is definitely among
-            // the Apple Continuity advertisers. Probe them, closest (strongest) first.
-            java.util.Collections.sort(appleAdvertisers, new java.util.Comparator<BluetoothDevice>() {
-                @Override
-                public int compare(BluetoothDevice a, BluetoothDevice b) {
-                    int ra = rssiByAddress.containsKey(a.getAddress())
-                            ? rssiByAddress.get(a.getAddress()) : -127;
-                    int rb = rssiByAddress.containsKey(b.getAddress())
-                            ? rssiByAddress.get(b.getAddress()) : -127;
-                    return rb - ra;
-                }
-            });
-            Log.i(TAG, "Probing " + appleAdvertisers.size()
-                    + " Apple advertiser(s) for ANCS (strongest first)");
-            // Bound the search: the iPhone is normally among the strongest few.
-            if (appleAdvertisers.size() > 20) {
-                appleAdvertisers.subList(20, appleAdvertisers.size()).clear();
-            }
-            candidates.addAll(appleAdvertisers);
-        }
         if (!candidates.isEmpty()) {
             connectToNextCandidate();
         } else {
-            Log.i(TAG, "No iPhone / companion found in this scan; will retry");
+            Log.i(TAG, "No companion found in this scan; will retry");
             scheduleReconnect();
         }
     }
@@ -419,10 +630,22 @@ public class AncsClient {
         public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
             if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "Connected to " + pendingDeviceName + ", discovering services");
+                markProgress();
                 handler.removeCallbacks(connectTimeout);
-                g.discoverServices();
+                // iOS peripherals need a moment after the link comes up before they answer
+                // service discovery; firing discoverServices() immediately on this Android
+                // 4.4 stack makes it never call back. Delay it slightly.
+                final BluetoothGatt connected = g;
+                handler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        boolean ok = connected.discoverServices();
+                        Log.i(TAG, "discoverServices() returned " + ok
+                                + " for " + pendingDeviceName);
+                    }
+                }, 900L);
                 handler.removeCallbacks(discoveryTimeout);
-                handler.postDelayed(discoveryTimeout, 5000L);
+                handler.postDelayed(discoveryTimeout, 12000L);
             } else if (newState == android.bluetooth.BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "Disconnected from " + pendingDeviceName);
                 handler.removeCallbacks(connectTimeout);
@@ -443,6 +666,7 @@ public class AncsClient {
         @Override
         public void onServicesDiscovered(BluetoothGatt g, int status) {
             handler.removeCallbacks(discoveryTimeout);
+            markProgress();
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.w(TAG, "Service discovery failed: " + status);
                 closeGatt();
@@ -473,8 +697,7 @@ public class AncsClient {
 
             controlPoint = ancs.getCharacteristic(Constants.ANCS_CONTROL_POINT);
             dataSource = ancs.getCharacteristic(Constants.ANCS_DATA_SOURCE);
-            BluetoothGattCharacteristic notificationSource =
-                    ancs.getCharacteristic(Constants.ANCS_NOTIFICATION_SOURCE);
+            notificationSource = ancs.getCharacteristic(Constants.ANCS_NOTIFICATION_SOURCE);
 
             if (controlPoint == null || dataSource == null || notificationSource == null) {
                 Log.w(TAG, "ANCS service is incomplete");
@@ -489,11 +712,12 @@ public class AncsClient {
             pendingSubscriptions = 0;
             enableNotifications(g, notificationSource);
             enableNotifications(g, dataSource);
-            BluetoothGattCharacteristic command = findCharacteristic(g, Constants.MYGLASS_SERVICE,
+            commandChar = findCharacteristic(g, Constants.MYGLASS_SERVICE,
                     Constants.MYGLASS_COMMAND);
-            if (command != null) {
-                enableNotifications(g, command);
+            if (commandChar != null) {
+                enableNotifications(g, commandChar);
             }
+            uplink = findCharacteristic(g, Constants.MYGLASS_SERVICE, Constants.MYGLASS_UPLINK);
             readCompanionClock(g);
 
             // ANCS requires an authorized (bonded) link. Ask to pair a moment after
@@ -511,10 +735,8 @@ public class AncsClient {
             } else if (Constants.ANCS_DATA_SOURCE.equals(c.getUuid())) {
                 handleDataSource(c.getValue());
             } else if (Constants.MYGLASS_COMMAND.equals(c.getUuid())) {
-                byte[] value = c.getValue();
-                if (value != null && value.length > 0) {
-                    listener.onCompanionCommand(new String(value, UTF8));
-                }
+                lastDownlinkMs = System.currentTimeMillis();
+                handleCommandChunk(c.getValue());
             }
         }
 
@@ -522,8 +744,13 @@ public class AncsClient {
         public void onCharacteristicRead(BluetoothGatt g, BluetoothGattCharacteristic c, int status) {
             Log.i(TAG, "read " + c.getUuid() + " status=" + status
                     + " len=" + (c.getValue() != null ? c.getValue().length : -1));
+            keepalivePending = false;
+            markProgress();
             opFinished();
             if (status != BluetoothGatt.GATT_SUCCESS) {
+                if (status == 132 && ancsDevice != null) {
+                    scheduleReconnectNow();
+                }
                 return;
             }
             if (Constants.CTS_CURRENT_TIME.equals(c.getUuid())) {
@@ -561,17 +788,26 @@ public class AncsClient {
 
         @Override
         public void onCharacteristicWrite(BluetoothGatt g, BluetoothGattCharacteristic c, int status) {
+            if (Constants.MYGLASS_UPLINK.equals(c.getUuid())) {
+                Log.i(TAG, "Uplink write status=" + status);
+            }
             opFinished();
         }
 
         @Override
         public void onDescriptorWrite(BluetoothGatt g, BluetoothGattDescriptor d, int status) {
             opFinished();
+            markProgress();
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.w(TAG, "Descriptor write failed: " + status);
                 // 5 = insufficient authentication, 15 = insufficient encryption.
                 if ((status == 5 || status == 15) && ancsDevice != null) {
                     ensureBond(ancsDevice);
+                    // Retry on this link: the stack may still be encrypting it.
+                    scheduleResubscribe();
+                } else if (ancsDevice != null) {
+                    // Link-level error (e.g. 132): the link is unusable, so reconnect.
+                    scheduleReconnectNow();
                 }
                 return;
             }
@@ -736,9 +972,16 @@ public class AncsClient {
             return;
         }
         activeRequestUid = uid;
+        startPhase(uid, MAIN_ATTRIBUTES, 1);
+    }
+
+    /** Sends a GetNotificationAttributes control-point command for one phase. */
+    private void startPhase(long uid, int[] attributes, int phase) {
         dataBuffer.reset();
         receivedAttributes.clear();
-        byte[] command = Ancs.getNotificationAttributes(uid, REQUESTED_ATTRIBUTES);
+        currentPhaseAttributes = attributes;
+        currentPhase = phase;
+        byte[] command = Ancs.getNotificationAttributes(uid, attributes);
         enqueue(new GattOp(GattOp.CHARACTERISTIC, controlPoint, null, command));
     }
 
@@ -750,8 +993,9 @@ public class AncsClient {
         parseDataBuffer();
 
         handler.removeCallbacks(dispatchData);
-        if (receivedAttributes.size() >= REQUESTED_ATTRIBUTES.length) {
-            dispatchActiveRequest();
+        if (currentPhaseAttributes != null
+                && receivedAttributes.size() >= currentPhaseAttributes.length) {
+            advancePhase();
         } else {
             handler.postDelayed(dispatchData, Constants.DATA_SOURCE_COALESCE_MS);
         }
@@ -792,6 +1036,16 @@ public class AncsClient {
                 case Ancs.ATTR_MESSAGE:
                     notification.message = text;
                     break;
+                case Ancs.ATTR_DATE:
+                    notification.dateString = text;
+                    notification.dateMillis = Ancs.parseDate(text);
+                    break;
+                case Ancs.ATTR_POSITIVE_ACTION_LABEL:
+                    notification.positiveActionLabel = text;
+                    break;
+                case Ancs.ATTR_NEGATIVE_ACTION_LABEL:
+                    notification.negativeActionLabel = text;
+                    break;
                 default:
                     break;
             }
@@ -800,25 +1054,92 @@ public class AncsClient {
         }
     }
 
-    private void dispatchActiveRequest() {
+    private void advancePhase() {
         handler.removeCallbacks(dispatchData);
         long uid = activeRequestUid;
-        activeRequestUid = -1;
-        if (uid != -1) {
-            AncsNotification notification = notifications.get(uid);
-            if (notification != null) {
-                listener.onAncsNotification(notification);
-            }
+        if (uid == -1) {
+            return;
         }
+        AncsNotification notification = notifications.get(uid);
+        if (currentPhase == 1 && notification != null
+                && (notification.hasPositiveAction() || notification.hasNegativeAction())) {
+            // Fetch the action labels before dispatching.
+            startPhase(uid, ACTION_ATTRIBUTES, 2);
+            return;
+        }
+        activeRequestUid = -1;
+        currentPhaseAttributes = null;
+        currentPhase = 0;
         dataBuffer.reset();
         receivedAttributes.clear();
+        if (notification != null) {
+            listener.onAncsNotification(notification);
+        }
         sendNextRequest();
+    }
+
+    /** Performs an ANCS notification action (positive/negative) on the phone. */
+    public void performAction(long uid, int actionId) {
+        if (controlPoint == null || gatt == null) {
+            Log.w(TAG, "Cannot perform action: not connected");
+            return;
+        }
+        Log.i(TAG, "Performing ANCS action " + actionId + " for uid " + uid);
+        byte[] command = Ancs.performNotificationAction(uid, actionId);
+        enqueue(new GattOp(GattOp.CHARACTERISTIC, controlPoint, null, command));
+    }
+
+    /**
+     * Sends a JSON command to the phone over the uplink characteristic. The payload is
+     * framed with a trailing newline and chunked into &lt;=20-byte writes (Android 4.4's
+     * ATT MTU cap); the phone reassembles it.
+     */
+    public boolean sendUplink(String json) {
+        if (uplink == null || gatt == null) {
+            Log.w(TAG, "Uplink unavailable");
+            return false;
+        }
+        byte[] framed = (json + "\n").getBytes(UTF8);
+        for (int i = 0; i < framed.length; i += 20) {
+            int end = Math.min(i + 20, framed.length);
+            byte[] chunk = java.util.Arrays.copyOfRange(framed, i, end);
+            enqueue(new GattOp(GattOp.CHARACTERISTIC, uplink, null, chunk));
+        }
+        Log.i(TAG, "Sent uplink: " + json);
+        return true;
+    }
+
+    /**
+     * The phone splits each JSON command into &lt;=20-byte BLE notifications (Android 4.4's
+     * ATT MTU caps a single notification at 20 bytes), terminated by a newline. Reassemble
+     * the chunks and dispatch each complete command.
+     */
+    private void handleCommandChunk(byte[] value) {
+        if (value == null || value.length == 0) {
+            return;
+        }
+        commandBuffer.write(value, 0, value.length);
+        byte[] data = commandBuffer.toByteArray();
+        int start = 0;
+        for (int i = 0; i < data.length; i++) {
+            if (data[i] == '\n') {
+                String command = new String(data, start, i - start, UTF8).trim();
+                if (command.length() > 0) {
+                    listener.onCompanionCommand(command);
+                }
+                start = i + 1;
+            }
+        }
+        commandBuffer.reset();
+        int remaining = data.length - start;
+        if (remaining > 0 && remaining <= 4096) {
+            commandBuffer.write(data, start, remaining);
+        }
     }
 
     // ------------------------------------------------------------------------------------
     // Advertisement parsing
     // ------------------------------------------------------------------------------------
-
     private static final class ScanInfo {
         String name;
         boolean hasCts;
@@ -1020,6 +1341,7 @@ public class AncsClient {
         activeRequestUid = -1;
         requestQueue.clear();
         dataBuffer.reset();
+        commandBuffer.reset();
         receivedAttributes.clear();
         notifications.clear();
         if (gatt != null) {
@@ -1036,6 +1358,40 @@ public class AncsClient {
         subscribed.clear();
         controlPoint = null;
         dataSource = null;
+        notificationSource = null;
+        commandChar = null;
+        uplink = null;
+    }
+
+    /**
+     * Re-attempts the ANCS subscription on the currently-open link. Used when the first
+     * attempt was rejected for insufficient authentication: Android 4.4 does not
+     * re-encrypt a stored bond by itself, so we keep the link up and retry rather than
+     * tearing it down (which just churns).
+     */
+    private void retrySubscription() {
+        if (!started || ready) {
+            return;
+        }
+        if (gatt == null) {
+            reconnect();
+            return;
+        }
+        Log.i(TAG, "Re-attempting ANCS subscription on the current link");
+        opQueue.clear();
+        opBusy = false;
+        pendingSubscriptions = 0;
+        ready = false;
+        if (notificationSource != null) {
+            enableNotifications(gatt, notificationSource);
+        }
+        if (dataSource != null) {
+            enableNotifications(gatt, dataSource);
+        }
+        if (commandChar != null) {
+            enableNotifications(gatt, commandChar);
+        }
+        readCompanionClock(gatt);
     }
 
     /**

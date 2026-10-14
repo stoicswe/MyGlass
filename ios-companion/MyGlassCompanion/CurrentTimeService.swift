@@ -17,6 +17,8 @@ enum MyGlassUUIDs {
     static let epochMillis = CBUUID(string: "A102")
     static let timeZone = CBUUID(string: "A103")
     static let command = CBUUID(string: "A104")
+    /// Glass -> phone command channel (JSON), written to by Glass.
+    static let uplink = CBUUID(string: "A105")
 }
 
 /// Wi-Fi encryption ordinals as understood by Glass's `WifiHelper.Encryption`.

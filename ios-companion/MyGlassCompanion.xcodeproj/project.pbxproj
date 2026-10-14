@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		25D81EDBC4751F8DC9CDCB11 /* MediaController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2B4936EB3A11B80800A0ED /* MediaController.swift */; };
 		91FD0209FA8B72EB62E26AD8 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18854CDB79D5A1E4DE508B1 /* ContentView.swift */; };
 		A928198AFD6B9E90F6F6566B /* BluetoothCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710A306F7FD00331875881A9 /* BluetoothCompanion.swift */; };
 		D95642517380082346C024EA /* CompanionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E17CFAEB84267C0DDEDDBA36 /* CompanionModel.swift */; };
@@ -15,7 +16,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		11C65EF7CD07F5E998EBA11C /* MyGlass Companion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MyGlass Companion.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		11C65EF7CD07F5E998EBA11C /* MyGlassCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MyGlassCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E2B4936EB3A11B80800A0ED /* MediaController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaController.swift; sourceTree = "<group>"; };
 		710A306F7FD00331875881A9 /* BluetoothCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BluetoothCompanion.swift; sourceTree = "<group>"; };
 		7C19F80C65A8E2660D2066D0 /* CurrentTimeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentTimeService.swift; sourceTree = "<group>"; };
 		DE784B238597C265C62BDAE8 /* MyGlassCompanionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGlassCompanionApp.swift; sourceTree = "<group>"; };
@@ -39,6 +41,7 @@
 				E17CFAEB84267C0DDEDDBA36 /* CompanionModel.swift */,
 				F18854CDB79D5A1E4DE508B1 /* ContentView.swift */,
 				7C19F80C65A8E2660D2066D0 /* CurrentTimeService.swift */,
+				5E2B4936EB3A11B80800A0ED /* MediaController.swift */,
 				DE784B238597C265C62BDAE8 /* MyGlassCompanionApp.swift */,
 			);
 			path = MyGlassCompanion;
@@ -47,7 +50,7 @@
 		BFFA06AB201EF98FE8FA6A53 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				11C65EF7CD07F5E998EBA11C /* MyGlass Companion.app */,
+				11C65EF7CD07F5E998EBA11C /* MyGlassCompanion.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -69,7 +72,7 @@
 			packageProductDependencies = (
 			);
 			productName = MyGlassCompanion;
-			productReference = 11C65EF7CD07F5E998EBA11C /* MyGlass Companion.app */;
+			productReference = 11C65EF7CD07F5E998EBA11C /* MyGlassCompanion.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -82,6 +85,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					33DECAE47A270AD101F14097 = {
+						DevelopmentTeam = P22P7U46RW;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -114,6 +118,7 @@
 				D95642517380082346C024EA /* CompanionModel.swift in Sources */,
 				91FD0209FA8B72EB62E26AD8 /* ContentView.swift in Sources */,
 				DC28C25460B8936CC91C4827 /* CurrentTimeService.swift in Sources */,
+				25D81EDBC4751F8DC9CDCB11 /* MediaController.swift in Sources */,
 				E88A58DCDB3F8253759AE149 /* MyGlassCompanionApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

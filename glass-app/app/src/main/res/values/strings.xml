@@ -14,4 +14,8 @@
 
     <string name="menu_sync_time">Sync time now</string>
     <string name="menu_reconnect">Reconnect</string>
+
+    <string name="action_dismiss">Dismiss</string>
+    <string name="action_read">Read more</string>
+    <string name="action_remove">Remove</string>
 </resources>

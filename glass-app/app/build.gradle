@@ -34,7 +34,11 @@ android {
 }
 
 dependencies {
-    // No GDK dependency: this Glass build does not ship the GDK classes, so the app
-    // uses standard Android notifications and views instead.
+    // GDK stub jar (compile-only). The real com.google.android.glass.* classes are
+    // provided by the Glass system itself (glass-core.jar on the boot classpath), so the
+    // app must NOT package them. This lets us use CardBuilder/LiveCard for real timeline
+    // cards while remaining compatible with builds that lack the GDK (guarded by a
+    // runtime Class.forName check).
+    compileOnly fileTree(dir: 'libs', include: ['*.jar'])
     testImplementation 'junit:junit:4.13.2'
 }

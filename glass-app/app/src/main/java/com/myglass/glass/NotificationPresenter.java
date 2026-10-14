@@ -12,6 +12,7 @@ package com.myglass.glass;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
@@ -22,9 +23,12 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * Shows ANCS notifications on Glass using standard Android notifications, which the
- * Glass system UI renders as timeline/alert cards. (This Glass build does not ship the
- * GDK, so {@code CardBuilder}/{@code LiveCard} are not available.)
+ * Shows ANCS notifications on Glass.
+ *
+ * <p>When the GDK is available (as on this Glass build), each notification is published
+ * as a persistent timeline {@link TimelineCards LiveCard} using {@code CardBuilder} — so
+ * it shows up in the timeline like a photo card, not just as a transient popup. If the
+ * GDK classes are missing, it falls back to a standard Android notification popup.
  */
 public class NotificationPresenter {
 
@@ -34,15 +38,42 @@ public class NotificationPresenter {
     private final NotificationManager manager;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Set<Integer> active = new HashSet<Integer>();
+    private final TimelineCards cards;
 
     public NotificationPresenter(Context context) {
         this.context = context.getApplicationContext();
         this.manager = (NotificationManager) this.context.getSystemService(Context.NOTIFICATION_SERVICE);
+        this.cards = createCardsIfAvailable(context);
+    }
+
+    private static TimelineCards createCardsIfAvailable(Context context) {
+        if (!(context instanceof Service)) {
+            return null;
+        }
+        try {
+            Class.forName("com.google.android.glass.timeline.LiveCard");
+            return new TimelineCards((Service) context);
+        } catch (Throwable t) {
+            Log.i(TAG, "GDK not available; using notification popups (" + t + ")");
+            return null;
+        }
     }
 
     public void show(AncsNotification notification) {
+        if (cards != null) {
+            try {
+                cards.show(notification);
+                return;
+            } catch (Throwable t) {
+                Log.w(TAG, "Timeline card failed; falling back to popup", t);
+            }
+        }
+        showPopup(notification);
+    }
+
+    private void showPopup(AncsNotification notification) {
         int id = notificationId(notification.uid);
-        dismiss(notification.uid);
+        cancel(id);
 
         Notification.Builder builder = new Notification.Builder(context)
                 .setSmallIcon(android.R.drawable.stat_notify_chat)
@@ -74,11 +105,17 @@ public class NotificationPresenter {
     }
 
     public void dismiss(long uid) {
+        if (cards != null) {
+            cards.dismiss(uid);
+        }
         cancel(notificationId(uid));
     }
 
     public void dismissAll() {
         handler.removeCallbacksAndMessages(null);
+        if (cards != null) {
+            cards.dismissAll();
+        }
         for (Integer id : new HashSet<Integer>(active)) {
             cancel(id);
         }

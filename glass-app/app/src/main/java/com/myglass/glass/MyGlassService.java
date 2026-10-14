@@ -13,8 +13,10 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
@@ -36,14 +38,43 @@ public class MyGlassService extends Service implements AncsClient.Listener {
     public static final String ACTION_SET_WIFI = "com.myglass.glass.action.SET_WIFI";
     public static final String ACTION_RUN_SETUP = "com.myglass.glass.action.RUN_SETUP";
     public static final String ACTION_STOP = "com.myglass.glass.action.STOP";
+    public static final String ACTION_NOTIFICATION_ACTION =
+            "com.myglass.glass.action.NOTIFICATION_ACTION";
+    public static final String ACTION_MEDIA_COMMAND = "com.myglass.glass.action.MEDIA_COMMAND";
+    public static final String EXTRA_UID = "uid";
+    public static final String EXTRA_ACTION = "action";
+    public static final String EXTRA_COMMAND = "command";
 
     private static final String CHANNEL_ID = "myglass";
     private static final int NOTIFICATION_ID = 0x4D4700;
 
     private AncsClient ancsClient;
     private NotificationPresenter presenter;
+    private MediaCard mediaCard;
     private boolean ntpSynced;
     private boolean ianaZoneSeen;
+
+    /** Receives notification-action taps and media commands from the Glass UI. */
+    private final BroadcastReceiver actionReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null) {
+                return;
+            }
+            if (ACTION_NOTIFICATION_ACTION.equals(intent.getAction())) {
+                long uid = intent.getLongExtra(EXTRA_UID, -1);
+                int action = intent.getIntExtra(EXTRA_ACTION, -1);
+                if (uid >= 0 && action >= 0 && ancsClient != null) {
+                    ancsClient.performAction(uid, action);
+                }
+            } else if (ACTION_MEDIA_COMMAND.equals(intent.getAction())) {
+                String command = intent.getStringExtra(EXTRA_COMMAND);
+                if (command != null && ancsClient != null) {
+                    ancsClient.sendUplink("{\"m\":\"" + command + "\"}");
+                }
+            }
+        }
+    };
 
     @Override
     public void onCreate() {
@@ -51,6 +82,21 @@ public class MyGlassService extends Service implements AncsClient.Listener {
         createNotificationChannel();
         presenter = new NotificationPresenter(this);
         ancsClient = new AncsClient(this, this);
+        mediaCard = createMediaCardIfAvailable();
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ACTION_NOTIFICATION_ACTION);
+        filter.addAction(ACTION_MEDIA_COMMAND);
+        registerReceiver(actionReceiver, filter);
+    }
+
+    private MediaCard createMediaCardIfAvailable() {
+        try {
+            Class.forName("com.google.android.glass.timeline.LiveCard");
+            return new MediaCard(this);
+        } catch (Throwable t) {
+            Log.i(TAG, "GDK not available; media card disabled");
+            return null;
+        }
     }
 
     @Override
@@ -101,6 +147,13 @@ public class MyGlassService extends Service implements AncsClient.Listener {
         }
         if (presenter != null) {
             presenter.dismissAll();
+        }
+        if (mediaCard != null) {
+            mediaCard.remove();
+        }
+        try {
+            unregisterReceiver(actionReceiver);
+        } catch (Exception ignored) {
         }
         super.onDestroy();
     }
@@ -178,10 +231,13 @@ public class MyGlassService extends Service implements AncsClient.Listener {
 
     @Override
     public void onCompanionCommand(String payload) {
-        Log.i(TAG, "Companion command: " + payload);
         try {
             JSONObject json = new JSONObject(payload);
             String cmd = json.optString("cmd");
+            if ("ping".equals(cmd)) {
+                return;
+            }
+            Log.i(TAG, "Companion command: " + payload);
             if ("wifi".equals(cmd)) {
                 SetupActions.setWifi(this, json.optString("ssid"),
                         json.optInt("enc", SetupActions.ENC_WPA), json.optString("psk"));
@@ -203,6 +259,15 @@ public class MyGlassService extends Service implements AncsClient.Listener {
                     GlassLocation.update(this, lat, lon,
                             (float) json.optDouble("acc", 15.0),
                             json.optLong("t", 0L));
+                }
+            } else if ("media_state".equals(cmd)) {
+                if (mediaCard != null) {
+                    mediaCard.update(json.optString("title", ""), json.optString("artist", ""),
+                            json.optBoolean("playing", false));
+                }
+            } else if ("media_stop".equals(cmd)) {
+                if (mediaCard != null) {
+                    mediaCard.remove();
                 }
             } else if ("phone".equals(cmd)) {
                 String name = json.optString("name", "Phone");

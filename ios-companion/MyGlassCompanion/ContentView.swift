@@ -47,6 +47,14 @@ struct ContentView: View {
                     }
                 }
 
+                Section("Notifications") {
+                    Button("Send test notification") {
+                        model.sendTestNotification()
+                    }
+                    Text("Delivered to Glass over ANCS. Lock the iPhone right after tapping so iOS forwards it.")
+                        .font(.footnote)
+                }
+
                 Section("Glass setup & Wi-Fi") {
                     TextField("Google email", text: $email)
                         .textInputAutocapitalization(.never)
@@ -98,6 +106,19 @@ struct ContentView: View {
                         get: { model.isSharingLocation },
                         set: { model.setLocationSharing($0) }))
                     Text("Streams the phone's GPS to Glass over Bluetooth so Glass apps (compass, navigation) use the phone's position.")
+                        .font(.footnote)
+                }
+
+                Section("Media (Apple Music)") {
+                    Toggle("Show & control Apple Music on Glass", isOn: Binding(
+                        get: { model.isSharingMedia },
+                        set: { model.setMediaSharing($0) }))
+                    HStack {
+                        Text("Last command")
+                        Spacer()
+                        Text(model.lastUplink).foregroundColor(.secondary)
+                    }
+                    Text("Shows the current Apple Music track on Glass with play/pause, next and previous. iOS only allows third-party apps to control Apple Music this way.")
                         .font(.footnote)
                 }
             }
